@@ -38,7 +38,7 @@ const verifyTool: MCPTool = {
 const panelTool: MCPTool = {
   name: 'orchestrate_panel',
   description:
-    'Answer a task via N diversified attempts run in parallel + majority vote, returning the winner and an agreement count. Use when a single model call is too unreliable because you want a voted answer with a confidence signal. demo:true runs a local no-LLM heuristic.',
+    'Answer a task via N diversified attempts run in parallel + majority vote, returning the winner and an agreement count. Use when a single model call is too unreliable because you want a voted answer with a confidence signal. The winner is always one of the attempts, so this catches a run that succeeded — it cannot reach an answer no attempt produced, and more attempts do not add capability. `agreement` measures consensus, not correctness: a confidently-wrong modal answer still wins. Where the task is executable, checking a candidate beats voting on it. demo:true runs a local no-LLM heuristic.',
   category: 'orchestrate',
   inputSchema: {
     type: 'object',

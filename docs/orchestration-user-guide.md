@@ -116,6 +116,17 @@ system prompt (`harness → ULTRA → ponytail → your prompt`). Off by default
 
 ## Notes & limits
 
+- **Selection cannot exceed what the attempts produced.** `panel` returns the
+  most-agreed answer *from among its own attempts*, so if no attempt got there,
+  neither does the panel — more attempts widen the pool, they do not add
+  capability. Measured on the neighbouring SwarmDoLLM verifier: on 40 hard mined
+  django tasks where the base model resolved 0, best-of-5 selection also resolved
+  0 (`evals/results/official/verifier-code-moat-boundary.json`). Selection pays
+  off when the model *sometimes* succeeds and you want to catch the run that did;
+  it buys nothing on tasks the model never solves.
+- **`agreement` measures consensus, not correctness.** A confidently-wrong modal
+  answer wins the vote. Where the task is executable, checking the candidate
+  beats polling opinions about it.
 - The engine is deterministic by contract — orchestration scripts must avoid
   `Date.now()`/`Math.random()` to stay reproducible.
 - `verify` is **adversarial** on purpose: skeptics are told to refute and to default

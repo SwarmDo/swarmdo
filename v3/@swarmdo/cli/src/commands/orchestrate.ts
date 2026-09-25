@@ -108,7 +108,7 @@ export const orchestrateCommand: Command = {
     },
     {
       name: 'panel',
-      description: 'Answer a task via N diversified attempts + majority vote',
+      description: 'Answer a task via N diversified attempts + majority vote (the winner is always one of the attempts)',
       options: [
         { name: 'attempts', description: 'Number of diversified attempts (default: 3)', type: 'number' },
         ...COMMON_OPTS,

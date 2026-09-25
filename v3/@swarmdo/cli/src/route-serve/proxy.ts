@@ -54,11 +54,24 @@ export interface OpenAIChatResponse {
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
+// ── Pure: strip Claude Code's context-window suffix from a model hint ─────────
+/**
+ * Claude Code appends a bracketed context marker to the model it sends —
+ * 'sonnet' goes out as 'sonnet[1m]'. Tier mapping survives that by substring
+ * luck, but slug PINNING does not: `isOpenRouterSlug` rejects
+ * 'deepseek/deepseek-chat[1m]', so a pinned pick from the model picker silently
+ * degraded to Thompson-sampled tier routing. Normalising here restores the pin.
+ * (Found by running `route claude` end to end, not by the unit tests.)
+ */
+export function normalizeModelHint(model: string | undefined | null): string {
+  return typeof model === 'string' ? model.replace(/\s*\[[^\]]*\]\s*$/, '').trim() : '';
+}
+
 // ── Pure: map an Anthropic model hint to one of our pool tiers ────────────────
 /** Claude Code sends model ids like 'claude-3-5-haiku…', 'claude-sonnet-4…',
  *  'claude-opus-4…'. Map by family; unknown → 'sonnet' (the safe middle tier). */
 export function tierForRequest(body: Pick<AnthropicRequest, 'model'>): RoutingTier {
-  const m = (body.model || '').toLowerCase();
+  const m = normalizeModelHint(body.model).toLowerCase();
   if (m.includes('haiku')) return 'haiku';
   if (m.includes('opus')) return 'opus';
   return 'sonnet';
@@ -133,7 +146,10 @@ export function selectModelForRequest(
   priors?: Priors,
 ): { model: string; source: string; tier: RoutingTier } | null {
   const tier = tierForRequest(body);
-  const picked = resolveOpenRouterModel({ requested: body.model, tier, cfg, priors });
+  // Normalised so a picker entry like 'deepseek/deepseek-chat[1m]' is still
+  // recognised as a slug and pins that model instead of falling through to tier
+  // sampling. See normalizeModelHint.
+  const picked = resolveOpenRouterModel({ requested: normalizeModelHint(body.model), tier, cfg, priors });
   return picked ? { ...picked, tier } : null;
 }
 

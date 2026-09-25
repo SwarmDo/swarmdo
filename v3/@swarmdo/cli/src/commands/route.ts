@@ -896,6 +896,102 @@ const serveCommand: Command = {
   },
 };
 
+/**
+ * `route claude` — launch Claude Code against the router proxy.
+ *
+ * `route serve` could only tell the user to export ANTHROPIC_BASE_URL, which
+ * left the pool invisible inside Claude Code. This renders a settings file that
+ * replaces the model picker with the pool (tier entries keep learned routing,
+ * slug entries pin a model) and points subagents at the cheapest tier, then
+ * execs `claude --settings <file>`. `--base-url` aims it at any
+ * Anthropic-compatible endpoint, not just the local proxy.
+ */
+const claudeCommand: Command = {
+  name: 'claude',
+  description: 'Launch Claude Code against the router proxy, with the pool in its model picker',
+  acceptsArgs: true,
+  options: [
+    { name: 'base-url', description: 'Anthropic-compatible endpoint', type: 'string', default: 'http://127.0.0.1:3456' },
+    { name: 'api-key', description: 'Token sent as ANTHROPIC_AUTH_TOKEN (default: local placeholder)', type: 'string' },
+    { name: 'subagent-model', description: 'Model for Claude Code subagents (default: cheapest live tier)', type: 'string' },
+    { name: 'settings-file', description: 'Where to write the settings document', type: 'string' },
+    { name: 'print', description: 'Render and print the settings (token redacted); do not launch', type: 'boolean' },
+  ],
+  examples: [
+    { command: 'swarmdo route claude', description: 'Launch Claude Code on the local proxy pool' },
+    { command: 'swarmdo route claude --print', description: 'Inspect the generated settings' },
+    { command: 'swarmdo route claude --base-url https://example.invalid --api-key $KEY', description: 'Aim at a remote endpoint' },
+  ],
+  action: async (ctx: CommandContext): Promise<CommandResult> => {
+    const os = await import('os');
+    const fs = await import('fs');
+    const path = await import('path');
+    const { loadOpenRouterConfig } = await import('../providers/openrouter-config.js');
+    const { renderClaudeSettings, liveTiers } = await import('../route-serve/claude-launcher.js');
+
+    const { config, warnings } = loadOpenRouterConfig(process.cwd());
+    for (const w of warnings) output.printWarning(w);
+    if (!config.enabled || config.models.length === 0) {
+      output.printError('OpenRouter pool is not configured.');
+      output.writeln(output.dim('  Add an `openrouter` block to swarmdo.config.json — see `swarmdo route serve`.'));
+      return { success: false, exitCode: 1, message: 'openrouter pool not configured' };
+    }
+    if (liveTiers(config).length === 0) {
+      output.printError('No pool model carries a tier — nothing to route to.');
+      output.writeln(output.dim('  Give at least one model a "tier" of haiku|sonnet|opus.'));
+      return { success: false, exitCode: 1, message: 'no tiered models' };
+    }
+
+    const baseUrl = String(ctx.flags['base-url'] ?? 'http://127.0.0.1:3456');
+    const settings = renderClaudeSettings({
+      cfg: config,
+      baseUrl,
+      authToken: (ctx.flags['api-key'] as string | undefined) ?? process.env.SWARMDO_ROUTE_API_KEY,
+      subagentModel: ctx.flags['subagent-model'] as string | undefined,
+    });
+
+    if (ctx.flags.print) {
+      const redacted = { ...settings, env: { ...settings.env, ANTHROPIC_AUTH_TOKEN: '<redacted>' } };
+      output.writeln(JSON.stringify(redacted, null, 2));
+      return { success: true };
+    }
+
+    const file = String(
+      ctx.flags['settings-file'] ?? path.join(os.homedir(), '.swarmdo', 'claude-settings.json'),
+    );
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
+      // writeFileSync's mode only applies when CREATING, so an existing file
+      // keeps its old (possibly world-readable) bits — and this one holds a token.
+      fs.chmodSync(file, 0o600);
+    } catch (e) {
+      output.printError(`Could not write ${file}: ${(e as Error).message}`);
+      return { success: false, exitCode: 1, message: 'settings write failed' };
+    }
+
+    const picker = settings.modelPicker.options.length;
+    output.printSuccess(`swarmdo route claude — ${picker} model option(s) → ${baseUrl}`);
+    output.writeln(output.dim(`  settings: ${file} (0600)`));
+    if (settings.env.CLAUDE_CODE_SUBAGENT_MODEL) {
+      output.writeln(output.dim(`  subagents: ${settings.env.CLAUDE_CODE_SUBAGENT_MODEL}`));
+    }
+
+    const { spawnSync } = await import('child_process');
+    const r = spawnSync('claude', ['--settings', file, ...ctx.args], { stdio: 'inherit' });
+    if (r.error && (r.error as NodeJS.ErrnoException).code === 'ENOENT') {
+      output.printError('claude not found on PATH — install Claude Code first.');
+      output.writeln(output.dim(`  The settings are written; you can also run: claude --settings ${file}`));
+      return { success: false, exitCode: 127, message: 'claude not on PATH' };
+    }
+    if (r.error) {
+      output.printError(`Could not launch claude: ${r.error.message}`);
+      return { success: false, exitCode: 1, message: 'launch failed' };
+    }
+    return { success: r.status === 0, exitCode: r.status ?? 0 };
+  },
+};
+
 export const routeCommand: Command = {
   name: 'route',
   description: 'Intelligent task-to-agent routing using Q-Learning',
@@ -912,6 +1008,7 @@ export const routeCommand: Command = {
     importCommand,
     coverageRouteCommand,
     serveCommand,
+    claudeCommand,
   ],
   options: [
     {

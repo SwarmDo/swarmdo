@@ -217,6 +217,44 @@ Needs the same `openrouter` block (`enabled: true` + a model pool) and
 `OPENROUTER_API_KEY`; `swarmdo route serve` prints a clear hint if either is
 missing. Flags: `--port` (default 3456), `--host` (default 127.0.0.1).
 
+### `route claude` — launch Claude Code with the pool in its model picker
+
+`ANTHROPIC_BASE_URL=… claude` works, but the pool stays invisible: `/model`
+still lists the built-in Anthropic models and subagents inherit the main one.
+`swarmdo route claude` renders a Claude Code settings file and launches with it.
+
+```bash
+swarmdo route serve &                  # in one terminal
+swarmdo route claude                   # in another — Claude Code, running on your pool
+swarmdo route claude --print           # inspect the settings without launching
+```
+
+What lands in the picker:
+
+| Entry | Routing |
+|---|---|
+| `Swarmdo Fast` / `Balanced` / `Deep` | **Learned** — Thompson-samples within the haiku/sonnet/opus tier |
+| one entry per pool model | **Pinned** — that exact slug, no sampling |
+
+- **Cheap subagents**: `CLAUDE_CODE_SUBAGENT_MODEL` defaults to your cheapest
+  live tier, which is where fan-out cost actually lands. Override with
+  `--subagent-model`.
+- **No dead tiers**: a tier with no models behind it is never offered, and the
+  matching Claude family falls back to the nearest live tier, so a request can't
+  dead-end on an empty pool.
+- **Your Anthropic credentials stay put**: `ANTHROPIC_AUTH_TOKEN` is always set
+  (a local placeholder when you pass no `--api-key`). Leaving it unset would
+  make Claude Code authenticate to whatever `--base-url` points at using your
+  real subscription token.
+
+Flags: `--base-url` (default `http://127.0.0.1:3456`), `--api-key` (or
+`SWARMDO_ROUTE_API_KEY`), `--subagent-model`, `--settings-file` (default
+`~/.swarmdo/claude-settings.json`, written `0600`), `--print`. Any further
+arguments are passed through to `claude`.
+
+Because `--base-url` accepts any Anthropic-compatible endpoint, the same command
+points Claude Code at a remote router, not just the local proxy.
+
 
 
 Quick examples:
